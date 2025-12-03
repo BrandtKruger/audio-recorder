@@ -2,6 +2,9 @@
 
 A Rust application for transcribing audio files (especially meeting recordings) to text files for meeting minutes.
 
+[![GitHub](https://img.shields.io/github/license/BrandtKruger/audio-recorder)](https://github.com/BrandtKruger/audio-recorder)
+[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+
 ## Features
 
 - 🎙️ Transcribes audio files to text
@@ -45,6 +48,8 @@ A Rust application for transcribing audio files (especially meeting recordings) 
    cd models
    wget https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
    ```
+   
+   **Note:** Model files are large (~140MB) and are not included in this repository. You must download them separately.
 
 ## Installation
 
@@ -164,4 +169,12 @@ Source: meeting.wav
 - The `base.en` model is recommended for English meetings
 - **Live recording**: Transcriptions appear in real-time as you speak. The app processes audio in chunks for better responsiveness
 - **Chunk size**: Smaller chunks (3-5 seconds) provide faster feedback, larger chunks (10+ seconds) may be more accurate
+
+## Repository
+
+This project is hosted on GitHub: [https://github.com/BrandtKruger/audio-recorder](https://github.com/BrandtKruger/audio-recorder)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 

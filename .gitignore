@@ -1,1 +1,28 @@
+# Rust build artifacts
 /target
+# Keep Cargo.lock for applications (it ensures reproducible builds)
+
+# Whisper model files (too large for git, users should download separately)
+/models/*.bin
+/models/*.txt
+
+# Generated transcription files
+*.txt
+!README.md
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll

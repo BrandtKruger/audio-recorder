@@ -1,0 +1,8 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Rust source files
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+
