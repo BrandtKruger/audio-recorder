@@ -73,6 +73,8 @@ A Rust application for transcribing audio files (especially meeting recordings) 
 
 ### Building from Source
 
+**You can build on any platform for that same platform:**
+
 ```bash
 # Clone the repository
 git clone https://github.com/BrandtKruger/audio-recorder.git
@@ -82,7 +84,18 @@ cd audio-recorder
 cargo build --release
 ```
 
-The executable will be in `target/release/audio-recorder` (or `target/release/audio-recorder.exe` on Windows).
+The executable will be in:
+- **macOS/Linux**: `target/release/audio-recorder`
+- **Windows**: `target/release/audio-recorder.exe`
+
+### Cross-Compilation (Optional)
+
+You can cross-compile for Windows from macOS or Linux, but it requires additional setup:
+- Install a Windows target: `rustup target add x86_64-pc-windows-msvc`
+- Install a cross-compilation toolchain (mingw-w64, etc.)
+- Configure linker settings
+
+**For most users, building directly on Windows is simpler and recommended.**
 
 ### Platform-Specific Notes
 
@@ -231,7 +244,7 @@ Source: meeting.wav
 
 5. **Build and Run**:
    ```powershell
-   # Build the project
+   # Build the project (must be done on Windows)
    cargo build --release
    
    # Run live transcription
@@ -240,6 +253,8 @@ Source: meeting.wav
    # Or transcribe a file
    .\target\release\audio-recorder.exe --input meeting.wav --output minutes.txt
    ```
+
+   **Note:** While cross-compilation from other platforms is possible, building directly on Windows is recommended for simplicity.
 
 ### Windows Notes
 
