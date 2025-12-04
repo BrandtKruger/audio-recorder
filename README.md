@@ -176,7 +176,22 @@ cargo run --release -- \
   --language en
 ```
 
-**Note:** Speaker diarization requires internet connection on first use to download models from Hugging Face. Models are cached locally after first download.
+**Setting up Speaker Diarization:**
+
+Speaker diarization requires a model file to be downloaded manually:
+
+1. **Visit the model page**: https://huggingface.co/pyannote/segmentation-3.0
+2. **Accept the terms**: You may need to create a free Hugging Face account and accept the model's terms of use
+3. **Download the model**: Look for the ONNX model file (usually named something like `segmentation.onnx` or similar)
+4. **Place in models directory**: Save it as `models/segmentation.onnx`
+
+   ```bash
+   mkdir -p models
+   # After downloading, move/copy the file to:
+   # models/segmentation.onnx
+   ```
+
+**Note:** The model file is typically 50-100MB. If the model file is not found, the app will show a helpful error message with download instructions.
 
 ### Full Examples
 

@@ -225,9 +225,50 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     resampled
 }
 
+fn find_pyannote_model() -> Result<PathBuf> {
+    let models_dir = PathBuf::from("models");
+    
+    // Try different possible model file names/locations
+    let possible_paths = vec![
+        models_dir.join("segmentation.onnx"),
+        models_dir.join("segmentation-3.0.onnx"),
+        models_dir.join("pyannote-segmentation.onnx"),
+        PathBuf::from("segmentation.onnx"),
+    ];
+    
+    for path in &possible_paths {
+        if path.exists() {
+            println!("Found model file: {}", path.display());
+            return Ok(path.clone());
+        }
+    }
+    
+    // Model not found - provide helpful error message
+    anyhow::bail!(
+        "Speaker diarization model not found.\n\
+         \n\
+         To enable speaker diarization, you need to download the model:\n\
+         \n\
+         1. Visit: https://huggingface.co/pyannote/segmentation-3.0\n\
+         2. Accept the model terms (you may need a Hugging Face account)\n\
+         3. Download the ONNX model file\n\
+         4. Place it in the 'models' directory with one of these names:\n\
+            - segmentation.onnx\n\
+            - segmentation-3.0.onnx\n\
+            - pyannote-segmentation.onnx\n\
+         \n\
+         Note: The model file is typically ~50-100MB.\n\
+         \n\
+         Alternatively, you can run without speaker diarization by removing the --speaker-diarization flag."
+    )
+}
+
 fn perform_speaker_diarization(audio_samples: &[f32], sample_rate: u32) -> Result<Vec<(f64, f64, usize)>> {
     println!("Performing speaker diarization...");
-    println!("Note: This will download models from Hugging Face on first use (requires internet connection)");
+    println!("Audio length: {:.2} seconds, {} samples at {} Hz", 
+             audio_samples.len() as f64 / sample_rate as f64,
+             audio_samples.len(),
+             sample_rate);
     
     // Convert f32 samples to i16 for pyannote-rs
     let samples_i16: Vec<i16> = audio_samples
@@ -235,23 +276,42 @@ fn perform_speaker_diarization(audio_samples: &[f32], sample_rate: u32) -> Resul
         .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
         .collect();
     
-    // Get model path - pyannote-rs uses Hugging Face model identifiers
-    // The model will be downloaded automatically on first use
-    let model_path = "pyannote/segmentation-3.0";
+    println!("Converted to i16 format: {} samples", samples_i16.len());
     
-    // Get speech segments (this identifies when speech occurs)
-    let segments_iter = get_segments(&samples_i16, sample_rate, model_path)
+    // Find the model file
+    let model_path = find_pyannote_model()?;
+    
+    println!("Using model: {}", model_path.display());
+    
+    // Get speech segments
+    let segments_iter = get_segments(&samples_i16, sample_rate, &model_path)
         .map_err(|e| anyhow::anyhow!("Failed to get segments: {}", e))?;
     
     let mut segments: Vec<Segment> = Vec::new();
+    let mut segment_count = 0;
     for segment_result in segments_iter {
-        let segment = segment_result.map_err(|e| anyhow::anyhow!("Segment error: {}", e))?;
-        segments.push(segment);
+        match segment_result {
+            Ok(segment) => {
+                segments.push(segment);
+                segment_count += 1;
+                if segment_count % 10 == 0 {
+                    print!("\r  Processed {} segments...", segment_count);
+                    std::io::stdout().flush().unwrap();
+                }
+            }
+            Err(e) => {
+                eprintln!("\nSegment processing error: {}", e);
+                // Continue processing other segments
+            }
+        }
     }
+    println!("\r  Processed {} segments total", segment_count);
     
     if segments.is_empty() {
-        anyhow::bail!("No speech segments found");
+        anyhow::bail!("No speech segments found - the audio may not contain speech or the model failed to process it");
     }
+    
+    println!("Successfully extracted {} speech segments", segments.len());
     
     // For now, assign sequential speaker IDs to segments
     // TODO: Implement proper speaker embedding extraction and clustering
@@ -278,8 +338,10 @@ fn perform_speaker_diarization(audio_samples: &[f32], sample_rate: u32) -> Resul
 }
 
 fn find_speaker_for_timestamp(segments: &[(f64, f64, usize)], timestamp_sec: f64) -> Option<usize> {
+    // Find the segment that contains this timestamp
+    // Use a small tolerance for matching (0.1 seconds)
     for (start, end, speaker) in segments {
-        if timestamp_sec >= *start && timestamp_sec <= *end {
+        if timestamp_sec >= *start - 0.1 && timestamp_sec <= *end + 0.1 {
             return Some(*speaker);
         }
     }
@@ -328,8 +390,12 @@ fn transcribe_audio(
 
     // Perform speaker diarization if enabled
     let speaker_segments = if enable_diarization {
+        println!("Speaker diarization is enabled");
         match perform_speaker_diarization(audio_samples, 16000) {
-            Ok(segments) => Some(segments),
+            Ok(segments) => {
+                println!("Speaker diarization completed successfully. Found {} speaker segments.", segments.len());
+                Some(segments)
+            },
             Err(e) => {
                 eprintln!("Warning: Speaker diarization failed: {}", e);
                 eprintln!("Continuing without speaker identification...");
@@ -362,8 +428,14 @@ fn transcribe_audio(
 
         // Find speaker for this segment (use middle of segment)
         let speaker_label = if let Some(ref segments) = speaker_segments {
-            if let Some(speaker_id) = find_speaker_for_timestamp(segments, (start_sec + end_sec) / 2.0) {
-                format!("Speaker {}: ", speaker_id + 1)
+            let mid_time = (start_sec + end_sec) / 2.0;
+            // Try to find speaker for start, middle, or end of segment
+            let speaker_id = find_speaker_for_timestamp(segments, start_sec)
+                .or_else(|| find_speaker_for_timestamp(segments, mid_time))
+                .or_else(|| find_speaker_for_timestamp(segments, end_sec));
+            
+            if let Some(sid) = speaker_id {
+                format!("Speaker {}: ", sid + 1)
             } else {
                 String::new()
             }
