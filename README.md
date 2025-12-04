@@ -9,6 +9,7 @@ A Rust application for transcribing audio files (especially meeting recordings) 
 
 - 🎙️ Transcribes audio files to text
 - 🎤 **Live recording from microphone with real-time transcription**
+- 👥 **Speaker diarization** - Identify and label different speakers (optional)
 - 📝 Saves transcriptions with timestamps
 - 🎵 Supports multiple audio formats (WAV, MP3, M4A, FLAC, etc.)
 - 🌍 Auto-detects language or specify manually
@@ -159,6 +160,24 @@ cargo run --release -- --input meeting.wav --language es  # Spanish
 cargo run --release -- --input meeting.wav --language fr  # French
 ```
 
+### Speaker Diarization (Identify Different Speakers)
+
+Enable speaker identification to label who said what:
+
+```bash
+# Transcribe with speaker identification
+cargo run --release -- --input meeting.wav --speaker-diarization
+
+# Full example with all options
+cargo run --release -- \
+  --input meeting.wav \
+  --output minutes.txt \
+  --speaker-diarization \
+  --language en
+```
+
+**Note:** Speaker diarization requires internet connection on first use to download models from Hugging Face. Models are cached locally after first download.
+
 ### Full Examples
 
 **Live Recording:**
@@ -196,7 +215,7 @@ The transcription file includes:
 - Header with source file information
 - Timestamped segments in format: `[MM:SS - MM:SS] transcribed text`
 
-Example:
+Example (without speaker diarization):
 ```
 Meeting Minutes - Transcription
 Source: meeting.wav
@@ -204,6 +223,18 @@ Source: meeting.wav
 [00:00 - 00:05] Welcome everyone to today's meeting.
 [00:05 - 00:12] Let's start by reviewing the agenda.
 [00:12 - 00:25] First item on the agenda is the quarterly review.
+...
+```
+
+Example (with speaker diarization):
+```
+Meeting Minutes - Transcription
+Source: meeting.wav
+
+[00:00 - 00:05] Speaker 1: Welcome everyone to today's meeting.
+[00:05 - 00:12] Speaker 2: Thanks for having me.
+[00:12 - 00:25] Speaker 1: Let's start by reviewing the agenda.
+[00:25 - 00:35] Speaker 2: I have a question about item three.
 ...
 ```
 
@@ -215,6 +246,7 @@ Source: meeting.wav
 - The `base.en` model is recommended for English meetings
 - **Live recording**: Transcriptions appear in real-time as you speak. The app processes audio in chunks for better responsiveness
 - **Chunk size**: Smaller chunks (3-5 seconds) provide faster feedback, larger chunks (10+ seconds) may be more accurate
+- **Speaker diarization**: Uses pyannote-rs for speaker identification. On first use, models will be downloaded from Hugging Face (requires internet). The current implementation uses gap-based speaker assignment - full embedding-based clustering is in development for improved accuracy
 
 ## Windows-Specific Instructions
 

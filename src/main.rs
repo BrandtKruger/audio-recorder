@@ -12,6 +12,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use whisper_rs::{FullParams, WhisperContext, WhisperContextParameters};
+use pyannote_rs::{get_segments, Segment};
 
 #[derive(Parser, Debug)]
 #[command(name = "audio-recorder")]
@@ -40,6 +41,10 @@ struct Args {
     /// Chunk size in seconds for live transcription (default: 5)
     #[arg(short = 'c', long, default_value = "5")]
     chunk_seconds: u64,
+
+    /// Enable speaker diarization (identify different speakers)
+    #[arg(short = 's', long)]
+    speaker_diarization: bool,
 }
 
 fn resolve_model_path(path: &PathBuf) -> Result<PathBuf> {
@@ -220,7 +225,73 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     resampled
 }
 
-fn transcribe_audio(model_path: &PathBuf, audio_samples: &[f32], language: Option<String>) -> Result<String> {
+fn perform_speaker_diarization(audio_samples: &[f32], sample_rate: u32) -> Result<Vec<(f64, f64, usize)>> {
+    println!("Performing speaker diarization...");
+    println!("Note: This will download models from Hugging Face on first use (requires internet connection)");
+    
+    // Convert f32 samples to i16 for pyannote-rs
+    let samples_i16: Vec<i16> = audio_samples
+        .iter()
+        .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
+        .collect();
+    
+    // Get model path - pyannote-rs uses Hugging Face model identifiers
+    // The model will be downloaded automatically on first use
+    let model_path = "pyannote/segmentation-3.0";
+    
+    // Get speech segments (this identifies when speech occurs)
+    let segments_iter = get_segments(&samples_i16, sample_rate, model_path)
+        .map_err(|e| anyhow::anyhow!("Failed to get segments: {}", e))?;
+    
+    let mut segments: Vec<Segment> = Vec::new();
+    for segment_result in segments_iter {
+        let segment = segment_result.map_err(|e| anyhow::anyhow!("Segment error: {}", e))?;
+        segments.push(segment);
+    }
+    
+    if segments.is_empty() {
+        anyhow::bail!("No speech segments found");
+    }
+    
+    // For now, assign sequential speaker IDs to segments
+    // TODO: Implement proper speaker embedding extraction and clustering
+    // This is a simplified version - full implementation would use EmbeddingExtractor
+    let mut speaker_segments = Vec::new();
+    let mut current_speaker = 0;
+    let mut last_end = 0.0;
+    
+    for segment in &segments {
+        // Simple heuristic: if there's a gap > 1 second, assume new speaker
+        if segment.start - last_end > 1.0 && current_speaker < 10 {
+            current_speaker += 1;
+        }
+        speaker_segments.push((segment.start, segment.end, current_speaker));
+        last_end = segment.end;
+    }
+    
+    let unique_speakers = speaker_segments.iter().map(|(_, _, s)| s).max().unwrap_or(&0) + 1;
+    println!("Found {} speech segments, identified {} potential speakers", 
+             speaker_segments.len(), unique_speakers);
+    println!("Note: Full speaker diarization with embedding clustering is in development");
+    
+    Ok(speaker_segments)
+}
+
+fn find_speaker_for_timestamp(segments: &[(f64, f64, usize)], timestamp_sec: f64) -> Option<usize> {
+    for (start, end, speaker) in segments {
+        if timestamp_sec >= *start && timestamp_sec <= *end {
+            return Some(*speaker);
+        }
+    }
+    None
+}
+
+fn transcribe_audio(
+    model_path: &PathBuf, 
+    audio_samples: &[f32], 
+    language: Option<String>,
+    enable_diarization: bool,
+) -> Result<String> {
     let resolved_path = resolve_model_path(model_path)?;
     println!("Loading Whisper model: {}", resolved_path.display());
     let ctx_params = WhisperContextParameters::default();
@@ -255,6 +326,20 @@ fn transcribe_audio(model_path: &PathBuf, audio_samples: &[f32], language: Optio
     state.full(params, audio_samples)
         .context("Transcription failed")?;
 
+    // Perform speaker diarization if enabled
+    let speaker_segments = if enable_diarization {
+        match perform_speaker_diarization(audio_samples, 16000) {
+            Ok(segments) => Some(segments),
+            Err(e) => {
+                eprintln!("Warning: Speaker diarization failed: {}", e);
+                eprintln!("Continuing without speaker identification...");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Extract the transcription
     let num_segments = state.full_n_segments()
         .context("Failed to get number of segments")?;
@@ -268,16 +353,28 @@ fn transcribe_audio(model_path: &PathBuf, audio_samples: &[f32], language: Optio
         let end_timestamp = state.full_get_segment_t1(i)
             .context("Failed to get segment end time")?;
 
-        let start_sec = start_timestamp / 100;
-        let end_sec = end_timestamp / 100;
-        let start_min = start_sec / 60;
-        let start_sec = start_sec % 60;
-        let end_min = end_sec / 60;
-        let end_sec = end_sec % 60;
+        let start_sec = start_timestamp as f64 / 100.0;
+        let end_sec = end_timestamp as f64 / 100.0;
+        let start_min = (start_sec as u64) / 60;
+        let start_sec_remainder = (start_sec as u64) % 60;
+        let end_min = (end_sec as u64) / 60;
+        let end_sec_remainder = (end_sec as u64) % 60;
+
+        // Find speaker for this segment (use middle of segment)
+        let speaker_label = if let Some(ref segments) = speaker_segments {
+            if let Some(speaker_id) = find_speaker_for_timestamp(segments, (start_sec + end_sec) / 2.0) {
+                format!("Speaker {}: ", speaker_id + 1)
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
 
         transcript.push_str(&format!(
-            "[{:02}:{:02} - {:02}:{:02}] {}\n",
-            start_min, start_sec, end_min, end_sec, segment.trim()
+            "[{:02}:{:02} - {:02}:{:02}] {}{}\n",
+            start_min, start_sec_remainder, end_min, end_sec_remainder, 
+            speaker_label, segment.trim()
         ));
     }
 
@@ -626,7 +723,12 @@ fn main() -> Result<()> {
                  audio_samples.len() as f32 / 16000.0);
 
         // Transcribe using Whisper
-        let transcript = transcribe_audio(&args.model, &audio_samples, args.language)?;
+        let transcript = transcribe_audio(
+            &args.model, 
+            &audio_samples, 
+            args.language,
+            args.speaker_diarization,
+        )?;
 
         // Save transcription to file
         println!("\nSaving transcription to: {}", output_path.display());

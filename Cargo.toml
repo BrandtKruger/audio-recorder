@@ -11,6 +11,7 @@ clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 chrono = "0.4"
+pyannote-rs = "0.3"
 
 # Use Metal feature on macOS for GPU acceleration, CPU on other platforms
 [target.'cfg(target_os = "macos")'.dependencies]

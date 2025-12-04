@@ -10,6 +10,14 @@
 *.txt
 !README.md
 
+# Audio files (too large for git)
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.aac
+
 # IDE files
 .idea/
 .vscode/
